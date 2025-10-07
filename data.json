@@ -320,5 +320,10 @@
       "y": 26.969638310228273
     }
   ],
-  "claims": {}
+  "claims": {
+    "6": {
+      "character": "Darnon",
+      "player": "Darnon",
+      "class": "Druid"
+  }
 }
