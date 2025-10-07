@@ -23,6 +23,13 @@
     <div id="app"></div>
 
     <script>
+        // ============ CONFIGURATION ============
+        const GITHUB_USERNAME = 'bnknkl';
+        const GITHUB_REPO = 'potato-soup-housing';
+        const GITHUB_TOKEN = 'YOUR_GITHUB_TOKEN_HERE'; // Replace this with your personal access token
+        const DATA_FILE = 'data.json';
+        const EDIT_PASSWORD = 'housing2025'; // Change this to your desired password
+        
         const MAP_URL = 'https://i.imgur.com/dPlVOwx.jpg';
         const HOUSE_ICON = 'https://i.imgur.com/g7sDEws.png';
         const FLIGHT_ICON = 'https://i.imgur.com/lkOGnpR.png';
@@ -49,8 +56,6 @@
             'Warrior': '#C69B6D'
         };
 
-        const EDIT_PASSWORD = 'housing2025'; // Change this to your desired password
-
         let state = {
             claims: {},
             plots: [],
@@ -62,33 +67,91 @@
             selectedPlot: null,
             draggedItem: null,
             dragOffset: { x: 0, y: 0 },
-            showHouseIds: true
+            showHouseIds: true,
+            loading: true,
+            fileSha: null // Track the SHA for updates
         };
 
-        // Load from localStorage
-        function loadState() {
-            const saved = localStorage.getItem('wowHousingData');
-            if (saved) {
-                try {
-                    const data = JSON.parse(saved);
-                    state.claims = data.claims || {};
-                    state.plots = data.plots || [];
-                    state.flightPaths = data.flightPaths || [];
-                    state.portals = data.portals || [];
-                } catch (e) {
-                    console.error('Error loading saved data:', e);
+        // ============ GITHUB API FUNCTIONS ============
+        async function loadFromGitHub() {
+            try {
+                const response = await fetch(
+                    `https://api.github.com/repos/${GITHUB_USERNAME}/${GITHUB_REPO}/contents/${DATA_FILE}`,
+                    {
+                        headers: {
+                            'Authorization': `token ${GITHUB_TOKEN}`,
+                            'Accept': 'application/vnd.github.v3+json'
+                        }
+                    }
+                );
+
+                if (response.ok) {
+                    const data = await response.json();
+                    state.fileSha = data.sha;
+                    const content = JSON.parse(atob(data.content));
+                    
+                    state.claims = content.claims || {};
+                    state.plots = content.plots || [];
+                    state.flightPaths = content.flightPaths || [];
+                    state.portals = content.portals || [];
+                    
+                    console.log('Data loaded from GitHub');
+                } else {
+                    console.error('Failed to load data from GitHub:', response.statusText);
                 }
+            } catch (error) {
+                console.error('Error loading from GitHub:', error);
+            } finally {
+                state.loading = false;
+                render();
             }
         }
 
-        function saveState() {
+        async function saveToGitHub() {
+            if (!state.fileSha) {
+                console.error('No file SHA available');
+                return;
+            }
+
             const data = {
-                claims: state.claims,
                 plots: state.plots,
                 flightPaths: state.flightPaths,
-                portals: state.portals
+                portals: state.portals,
+                claims: state.claims
             };
-            localStorage.setItem('wowHousingData', JSON.stringify(data));
+
+            const content = btoa(JSON.stringify(data, null, 2));
+
+            try {
+                const response = await fetch(
+                    `https://api.github.com/repos/${GITHUB_USERNAME}/${GITHUB_REPO}/contents/${DATA_FILE}`,
+                    {
+                        method: 'PUT',
+                        headers: {
+                            'Authorization': `token ${GITHUB_TOKEN}`,
+                            'Accept': 'application/vnd.github.v3+json',
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            message: 'Update housing data',
+                            content: content,
+                            sha: state.fileSha
+                        })
+                    }
+                );
+
+                if (response.ok) {
+                    const result = await response.json();
+                    state.fileSha = result.content.sha;
+                    console.log('Data saved to GitHub');
+                } else {
+                    console.error('Failed to save to GitHub:', response.statusText);
+                    alert('Failed to save data. Please try again.');
+                }
+            } catch (error) {
+                console.error('Error saving to GitHub:', error);
+                alert('Error saving data. Please check your connection.');
+            }
         }
 
         function exportData() {
@@ -103,7 +166,7 @@
             const url = URL.createObjectURL(dataBlob);
             const link = document.createElement('a');
             link.href = url;
-            link.download = 'guild-housing-data.json';
+            link.download = 'guild-housing-backup.json';
             link.click();
         }
 
@@ -111,18 +174,18 @@
             const input = document.createElement('input');
             input.type = 'file';
             input.accept = '.json';
-            input.onchange = (e) => {
+            input.onchange = async (e) => {
                 const file = e.target.files[0];
                 if (file) {
                     const reader = new FileReader();
-                    reader.onload = (event) => {
+                    reader.onload = async (event) => {
                         try {
                             const imported = JSON.parse(event.target.result);
                             if (imported.plots) state.plots = imported.plots;
                             if (imported.flightPaths) state.flightPaths = imported.flightPaths;
                             if (imported.portals) state.portals = imported.portals;
                             if (imported.claims) state.claims = imported.claims;
-                            saveState();
+                            await saveToGitHub();
                             render();
                         } catch (err) {
                             alert('Error importing file');
@@ -151,7 +214,7 @@
                 const newId = state.portals.length > 0 ? Math.max(...state.portals.map(p => p.id)) + 1 : 1;
                 state.portals.push({ id: newId, x, y });
             }
-            saveState();
+            saveToGitHub();
             render();
         }
 
@@ -199,7 +262,7 @@
 
         function handleMouseUp() {
             if (state.draggedItem) {
-                saveState();
+                saveToGitHub();
                 state.draggedItem = null;
                 render();
             }
@@ -217,7 +280,7 @@
             } else if (type === 'portal') {
                 state.portals = state.portals.filter(p => p.id !== id);
             }
-            saveState();
+            saveToGitHub();
             render();
         }
 
@@ -235,14 +298,14 @@
         function handleClaim(character, player, cls) {
             if (character && player) {
                 state.claims[state.selectedPlot] = { character, player, class: cls };
-                saveState();
+                saveToGitHub();
                 closeClaimModal();
             }
         }
 
         function handleUnclaim() {
             delete state.claims[state.selectedPlot];
-            saveState();
+            saveToGitHub();
             closeClaimModal();
         }
 
@@ -256,6 +319,18 @@
         }
 
         function render() {
+            if (state.loading) {
+                document.getElementById('app').innerHTML = `
+                    <div class="flex items-center justify-center h-screen">
+                        <div class="text-center">
+                            <div class="text-2xl mb-4">Loading housing data...</div>
+                            <div class="text-gray-400">Please wait</div>
+                        </div>
+                    </div>
+                `;
+                return;
+            }
+
             const claimedCount = Object.keys(state.claims).length;
             const filteredPlots = getFilteredPlots();
 
@@ -267,6 +342,9 @@
                         <div class="flex items-center gap-3">
                             <div class="text-yellow-500 text-2xl">🏠</div>
                             <h1 class="text-2xl font-bold">WoW Alliance Housing Claims</h1>
+                            <div class="text-xs text-green-400 bg-green-900 px-2 py-1 rounded">
+                                ☁️ Synced with GitHub
+                            </div>
                         </div>
                         <div class="flex items-center gap-4">
                             <div class="flex items-center gap-2 text-sm">
@@ -280,10 +358,13 @@
                                 ${state.showHouseIds ? '👁️ Hide IDs' : '👁️ Show IDs'}
                             </button>
                             <button onclick="exportData()" class="flex items-center gap-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm">
-                                ⬇️ Export
+                                ⬇️ Backup
                             </button>
                             <button onclick="importData()" class="flex items-center gap-2 px-3 py-2 bg-green-600 hover:bg-green-700 rounded text-sm">
-                                ⬆️ Import
+                                ⬆️ Restore
+                            </button>
+                            <button onclick="refreshData()" class="flex items-center gap-2 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 rounded text-sm">
+                                🔄 Refresh
                             </button>
                         </div>
                     </div>
@@ -468,7 +549,6 @@
         // Global functions
         window.toggleEditMode = function() {
             if (!state.editMode) {
-                // Entering edit mode - require password
                 const password = prompt('Enter edit mode password:');
                 if (password !== EDIT_PASSWORD) {
                     alert('Incorrect password!');
@@ -493,7 +573,7 @@
             state.flightPaths = [];
             state.portals = [];
             state.claims = {};
-            saveState();
+            saveToGitHub();
             render();
         };
 
@@ -522,9 +602,14 @@
             handleClaim(character, player, cls);
         };
 
+        window.refreshData = async function() {
+            state.loading = true;
+            render();
+            await loadFromGitHub();
+        };
+
         // Initialize
-        loadState();
-        render();
+        loadFromGitHub();
     </script>
 </body>
 </html>
