@@ -326,6 +326,11 @@
       "player": "Darnon",
       "class": "Druid"
     },
+    "13": {
+      "character": "Mikori",
+      "player": "jesdea",
+      "class": "Mage"
+    },
     "18": {
       "character": "Toolip",
       "player": "Toolip",
@@ -340,6 +345,11 @@
       "character": "Khazryl",
       "player": "gentlebensavage",
       "class": "Evoker"
+    },
+    "34": {
+      "character": "Ark",
+      "player": "joeyd.ark",
+      "class": "Monk"
     },
     "36": {
       "character": "Felix",
@@ -410,11 +420,6 @@
       "character": "Eli",
       "player": "Eli",
       "class": "Warrior"
-    },
-    "34": {
-      "character": "Ark",
-      "player": "joeyd.ark",
-      "class": "Monk"
     }
   }
 }
