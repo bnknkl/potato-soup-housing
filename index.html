@@ -11,6 +11,9 @@
             padding: 0;
             overflow-x: hidden;
         }
+        .draggable {
+            cursor: move;
+        }
         .clickable {
             cursor: pointer;
         }
@@ -20,11 +23,6 @@
     <div id="app"></div>
 
     <script>
-        // ============ CONFIGURATION ============
-        const GITHUB_USERNAME = 'bnknkl';
-        const GITHUB_REPO = 'potato-soup-housing';
-        const DATA_FILE = 'data.json';
-        
         const MAP_URL = 'https://i.imgur.com/dPlVOwx.jpg';
         const HOUSE_ICON = 'https://i.imgur.com/g7sDEws.png';
         const FLIGHT_ICON = 'https://i.imgur.com/lkOGnpR.png';
@@ -51,53 +49,180 @@
             'Warrior': '#C69B6D'
         };
 
+        const EDIT_PASSWORD = 'housing2025'; // Change this to your desired password
+
         let state = {
             claims: {},
             plots: [],
             flightPaths: [],
             portals: [],
+            editMode: false,
+            placementMode: null,
             filter: 'all',
             selectedPlot: null,
-            showHouseIds: true,
-            loading: true,
-            lastUpdated: null
+            draggedItem: null,
+            dragOffset: { x: 0, y: 0 },
+            showHouseIds: true
         };
 
-        // ============ GITHUB API FUNCTIONS ============
-        async function loadFromGitHub() {
-            try {
-                const response = await fetch(
-                    `https://api.github.com/repos/${GITHUB_USERNAME}/${GITHUB_REPO}/contents/${DATA_FILE}`,
-                    {
-                        headers: {
-                            'Accept': 'application/vnd.github.v3+json'
-                        }
-                    }
-                );
-
-                if (response.ok) {
-                    const data = await response.json();
-                    const content = JSON.parse(atob(data.content));
-                    
-                    state.claims = content.claims || {};
-                    state.plots = content.plots || [];
-                    state.flightPaths = content.flightPaths || [];
-                    state.portals = content.portals || [];
-                    state.lastUpdated = new Date().toLocaleString();
-                    
-                    console.log('Data loaded from GitHub');
-                } else {
-                    console.error('Failed to load data from GitHub:', response.statusText);
+        // Load from localStorage
+        function loadState() {
+            const saved = localStorage.getItem('wowHousingData');
+            if (saved) {
+                try {
+                    const data = JSON.parse(saved);
+                    state.claims = data.claims || {};
+                    state.plots = data.plots || [];
+                    state.flightPaths = data.flightPaths || [];
+                    state.portals = data.portals || [];
+                } catch (e) {
+                    console.error('Error loading saved data:', e);
                 }
-            } catch (error) {
-                console.error('Error loading from GitHub:', error);
-            } finally {
-                state.loading = false;
+            }
+        }
+
+        function saveState() {
+            const data = {
+                claims: state.claims,
+                plots: state.plots,
+                flightPaths: state.flightPaths,
+                portals: state.portals
+            };
+            localStorage.setItem('wowHousingData', JSON.stringify(data));
+        }
+
+        function exportData() {
+            const data = {
+                plots: state.plots,
+                flightPaths: state.flightPaths,
+                portals: state.portals,
+                claims: state.claims
+            };
+            const dataStr = JSON.stringify(data, null, 2);
+            const dataBlob = new Blob([dataStr], { type: 'application/json' });
+            const url = URL.createObjectURL(dataBlob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = 'guild-housing-data.json';
+            link.click();
+        }
+
+        function importData() {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.json';
+            input.onchange = (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                        try {
+                            const imported = JSON.parse(event.target.result);
+                            if (imported.plots) state.plots = imported.plots;
+                            if (imported.flightPaths) state.flightPaths = imported.flightPaths;
+                            if (imported.portals) state.portals = imported.portals;
+                            if (imported.claims) state.claims = imported.claims;
+                            saveState();
+                            render();
+                        } catch (err) {
+                            alert('Error importing file');
+                        }
+                    };
+                    reader.readAsText(file);
+                }
+            };
+            input.click();
+        }
+
+        function handleMapClick(e) {
+            if (!state.editMode || !state.placementMode) return;
+            
+            const rect = e.currentTarget.getBoundingClientRect();
+            const x = ((e.clientX - rect.left) / rect.width) * 100;
+            const y = ((e.clientY - rect.top) / rect.height) * 100;
+
+            if (state.placementMode === 'plot') {
+                const newId = state.plots.length > 0 ? Math.max(...state.plots.map(p => p.id)) + 1 : 1;
+                state.plots.push({ id: newId, x, y });
+            } else if (state.placementMode === 'flight') {
+                const newId = state.flightPaths.length > 0 ? Math.max(...state.flightPaths.map(f => f.id)) + 1 : 1;
+                state.flightPaths.push({ id: newId, x, y });
+            } else if (state.placementMode === 'portal') {
+                const newId = state.portals.length > 0 ? Math.max(...state.portals.map(p => p.id)) + 1 : 1;
+                state.portals.push({ id: newId, x, y });
+            }
+            saveState();
+            render();
+        }
+
+        function startDrag(e, type, item) {
+            if (!state.editMode) return;
+            e.stopPropagation();
+            
+            const rect = e.currentTarget.getBoundingClientRect();
+            state.draggedItem = { type, item };
+            state.dragOffset = {
+                x: e.clientX - rect.left,
+                y: e.clientY - rect.top
+            };
+        }
+
+        function handleMouseMove(e) {
+            if (!state.draggedItem || !state.editMode) return;
+            
+            const mapContainer = document.getElementById('map-container');
+            const rect = mapContainer.getBoundingClientRect();
+            const x = ((e.clientX - rect.left) / rect.width) * 100;
+            const y = ((e.clientY - rect.top) / rect.height) * 100;
+
+            if (state.draggedItem.type === 'plot') {
+                const plot = state.plots.find(p => p.id === state.draggedItem.item.id);
+                if (plot) {
+                    plot.x = x;
+                    plot.y = y;
+                }
+            } else if (state.draggedItem.type === 'flight') {
+                const flight = state.flightPaths.find(f => f.id === state.draggedItem.item.id);
+                if (flight) {
+                    flight.x = x;
+                    flight.y = y;
+                }
+            } else if (state.draggedItem.type === 'portal') {
+                const portal = state.portals.find(p => p.id === state.draggedItem.item.id);
+                if (portal) {
+                    portal.x = x;
+                    portal.y = y;
+                }
+            }
+            render();
+        }
+
+        function handleMouseUp() {
+            if (state.draggedItem) {
+                saveState();
+                state.draggedItem = null;
                 render();
             }
         }
 
+        function deleteItem(e, type, id) {
+            e.stopPropagation();
+            e.preventDefault();
+            
+            if (type === 'plot') {
+                state.plots = state.plots.filter(p => p.id !== id);
+                delete state.claims[id];
+            } else if (type === 'flight') {
+                state.flightPaths = state.flightPaths.filter(f => f.id !== id);
+            } else if (type === 'portal') {
+                state.portals = state.portals.filter(p => p.id !== id);
+            }
+            saveState();
+            render();
+        }
+
         function openClaimModal(plotId) {
+            if (state.editMode) return;
             state.selectedPlot = plotId;
             render();
         }
@@ -105,6 +230,20 @@
         function closeClaimModal() {
             state.selectedPlot = null;
             render();
+        }
+
+        function handleClaim(character, player, cls) {
+            if (character && player) {
+                state.claims[state.selectedPlot] = { character, player, class: cls };
+                saveState();
+                closeClaimModal();
+            }
+        }
+
+        function handleUnclaim() {
+            delete state.claims[state.selectedPlot];
+            saveState();
+            closeClaimModal();
         }
 
         function getFilteredPlots() {
@@ -117,18 +256,6 @@
         }
 
         function render() {
-            if (state.loading) {
-                document.getElementById('app').innerHTML = `
-                    <div class="flex items-center justify-center h-screen">
-                        <div class="text-center">
-                            <div class="text-2xl mb-4">Loading housing data...</div>
-                            <div class="text-gray-400">Please wait</div>
-                        </div>
-                    </div>
-                `;
-                return;
-            }
-
             const claimedCount = Object.keys(state.claims).length;
             const filteredPlots = getFilteredPlots();
 
@@ -140,66 +267,105 @@
                         <div class="flex items-center gap-3">
                             <div class="text-yellow-500 text-2xl">🏠</div>
                             <h1 class="text-2xl font-bold">WoW Alliance Housing Claims</h1>
-                            <div class="text-xs text-green-400 bg-green-900 px-2 py-1 rounded">
-                                ☁️ Loaded from GitHub
-                            </div>
-                            ${state.lastUpdated ? `
-                                <div class="text-xs text-gray-400">
-                                    Last updated: ${state.lastUpdated}
-                                </div>
-                            ` : ''}
                         </div>
                         <div class="flex items-center gap-4">
                             <div class="flex items-center gap-2 text-sm">
                                 <span>👥</span>
                                 <span>${claimedCount}/${state.plots.length} Claimed</span>
                             </div>
+                            <button onclick="toggleEditMode()" class="flex items-center gap-2 px-3 py-2 rounded text-sm ${state.editMode ? 'bg-yellow-600 hover:bg-yellow-700' : 'bg-purple-600 hover:bg-purple-700'}">
+                                ${state.editMode ? '✓ Done Editing' : '✏️ Edit Mode'}
+                            </button>
                             <button onclick="toggleHouseIds()" class="flex items-center gap-2 px-3 py-2 rounded text-sm ${state.showHouseIds ? 'bg-gray-600 hover:bg-gray-700' : 'bg-gray-700 hover:bg-gray-600'}">
                                 ${state.showHouseIds ? '👁️ Hide IDs' : '👁️ Show IDs'}
                             </button>
-                            <button onclick="refreshData()" class="flex items-center gap-2 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 rounded text-sm">
-                                🔄 Refresh
+                            <button onclick="exportData()" class="flex items-center gap-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm">
+                                ⬇️ Export
+                            </button>
+                            <button onclick="importData()" class="flex items-center gap-2 px-3 py-2 bg-green-600 hover:bg-green-700 rounded text-sm">
+                                ⬆️ Import
                             </button>
                         </div>
                     </div>
 
-                    <div class="flex gap-2 flex-wrap">
-                        <button onclick="setFilter('all')" class="px-3 py-1 rounded text-sm ${state.filter === 'all' ? 'bg-blue-600' : 'bg-gray-700 hover:bg-gray-600'}">
-                            All
-                        </button>
-                        <button onclick="setFilter('claimed')" class="px-3 py-1 rounded text-sm ${state.filter === 'claimed' ? 'bg-blue-600' : 'bg-gray-700 hover:bg-gray-600'}">
-                            Claimed
-                        </button>
-                        <button onclick="setFilter('unclaimed')" class="px-3 py-1 rounded text-sm ${state.filter === 'unclaimed' ? 'bg-blue-600' : 'bg-gray-700 hover:bg-gray-600'}">
-                            Unclaimed
-                        </button>
-                        <div class="w-px bg-gray-600 mx-2"></div>
-                        ${classes.map(cls => `
-                            <button onclick="setFilter('${cls}')" class="px-3 py-1 rounded text-sm ${state.filter === cls ? 'bg-blue-600' : 'bg-gray-700 hover:bg-gray-600'}" style="${state.filter === cls ? `background-color: ${classColors[cls]}` : ''}">
-                                ${cls}
+                    ${state.editMode ? `
+                        <div class="mb-4 p-3 bg-gray-900 rounded border border-yellow-500">
+                            <div class="flex items-center justify-between mb-2">
+                                <div class="text-sm font-semibold text-yellow-400">Placement Mode:</div>
+                                <button onclick="clearAll()" class="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-xs font-semibold">
+                                    🗑️ Clear All
+                                </button>
+                            </div>
+                            <div class="flex gap-2">
+                                <button onclick="setPlacementMode('plot')" class="flex items-center gap-2 px-3 py-2 rounded text-sm ${state.placementMode === 'plot' ? 'bg-yellow-600' : 'bg-gray-700 hover:bg-gray-600'}">
+                                    ➕ Place Houses (${state.plots.length})
+                                </button>
+                                <button onclick="setPlacementMode('flight')" class="flex items-center gap-2 px-3 py-2 rounded text-sm ${state.placementMode === 'flight' ? 'bg-yellow-600' : 'bg-gray-700 hover:bg-gray-600'}">
+                                    ➕ Place Flight Paths (${state.flightPaths.length})
+                                </button>
+                                <button onclick="setPlacementMode('portal')" class="flex items-center gap-2 px-3 py-2 rounded text-sm ${state.placementMode === 'portal' ? 'bg-yellow-600' : 'bg-gray-700 hover:bg-gray-600'}">
+                                    ➕ Place Portals (${state.portals.length})
+                                </button>
+                            </div>
+                            <div class="text-xs text-gray-400 mt-2">
+                                ${state.placementMode ? 'Click on the map to place items. Drag to reposition.' : 'Select a placement mode, then click on the map.'}
+                            </div>
+                        </div>
+                    ` : `
+                        <div class="flex gap-2 flex-wrap">
+                            <button onclick="setFilter('all')" class="px-3 py-1 rounded text-sm ${state.filter === 'all' ? 'bg-blue-600' : 'bg-gray-700 hover:bg-gray-600'}">
+                                All
                             </button>
-                        `).join('')}
-                    </div>
+                            <button onclick="setFilter('claimed')" class="px-3 py-1 rounded text-sm ${state.filter === 'claimed' ? 'bg-blue-600' : 'bg-gray-700 hover:bg-gray-600'}">
+                                Claimed
+                            </button>
+                            <button onclick="setFilter('unclaimed')" class="px-3 py-1 rounded text-sm ${state.filter === 'unclaimed' ? 'bg-blue-600' : 'bg-gray-700 hover:bg-gray-600'}">
+                                Unclaimed
+                            </button>
+                            <div class="w-px bg-gray-600 mx-2"></div>
+                            ${classes.map(cls => `
+                                <button onclick="setFilter('${cls}')" class="px-3 py-1 rounded text-sm ${state.filter === cls ? 'bg-blue-600' : 'bg-gray-700 hover:bg-gray-600'}" style="${state.filter === cls ? `background-color: ${classColors[cls]}` : ''}">
+                                    ${cls}
+                                </button>
+                            `).join('')}
+                        </div>
+                    `}
                 </div>
 
                 <!-- Map Container -->
-                <div class="flex-1 overflow-auto bg-gray-950" style="height: calc(100vh - 150px);">
-                    <div id="map-container" class="relative inline-block min-w-full">
+                <div class="flex-1 overflow-auto bg-gray-950" style="height: calc(100vh - 200px);">
+                    <div id="map-container" class="relative inline-block min-w-full" style="${state.editMode && state.placementMode ? 'cursor: crosshair;' : ''}">
                         <img src="${MAP_URL}" alt="WoW Housing Map" class="w-full h-auto" style="min-width: 1095px;">
                         
                         <!-- Flight Paths -->
                         ${state.flightPaths.map(flight => `
-                            <div class="absolute transform -translate-x-1/2 -translate-y-1/2" 
-                                 style="left: ${flight.x}%; top: ${flight.y}%;">
-                                <img src="${FLIGHT_ICON}" alt="Flight Path" class="w-10 h-10">
+                            <div class="absolute transform -translate-x-1/2 -translate-y-1/2 ${state.editMode ? 'draggable' : ''}" 
+                                 style="left: ${flight.x}%; top: ${flight.y}%;"
+                                 onmousedown="startDragItem(event, 'flight', ${flight.id})">
+                                <div class="relative">
+                                    <img src="${FLIGHT_ICON}" alt="Flight Path" class="w-10 h-10">
+                                    ${state.editMode ? `
+                                        <button onclick="deleteItem(event, 'flight', ${flight.id})" class="absolute -top-2 -right-2 bg-red-600 rounded-full p-1 hover:bg-red-700 text-white text-xs">
+                                            ✕
+                                        </button>
+                                    ` : ''}
+                                </div>
                             </div>
                         `).join('')}
 
                         <!-- Portals -->
                         ${state.portals.map(portal => `
-                            <div class="absolute transform -translate-x-1/2 -translate-y-1/2" 
-                                 style="left: ${portal.x}%; top: ${portal.y}%;">
-                                <img src="${PORTAL_ICON}" alt="Portal" class="w-10 h-10">
+                            <div class="absolute transform -translate-x-1/2 -translate-y-1/2 ${state.editMode ? 'draggable' : ''}" 
+                                 style="left: ${portal.x}%; top: ${portal.y}%;"
+                                 onmousedown="startDragItem(event, 'portal', ${portal.id})">
+                                <div class="relative">
+                                    <img src="${PORTAL_ICON}" alt="Portal" class="w-10 h-10">
+                                    ${state.editMode ? `
+                                        <button onclick="deleteItem(event, 'portal', ${portal.id})" class="absolute -top-2 -right-2 bg-red-600 rounded-full p-1 hover:bg-red-700 text-white text-xs">
+                                            ✕
+                                        </button>
+                                    ` : ''}
+                                </div>
                             </div>
                         `).join('')}
 
@@ -208,9 +374,10 @@
                             const claim = state.claims[plot.id];
                             const isClaimed = !!claim;
                             return `
-                                <div class="absolute transform -translate-x-1/2 -translate-y-1/2 transition-all clickable hover:scale-110" 
+                                <div class="absolute transform -translate-x-1/2 -translate-y-1/2 transition-all ${state.editMode ? 'draggable' : 'clickable hover:scale-110'}" 
                                      style="left: ${plot.x}%; top: ${plot.y}%;"
-                                     onclick="openClaimModal(${plot.id})">
+                                     onmousedown="startDragItem(event, 'plot', ${plot.id})"
+                                     onclick="${!state.editMode ? `openClaimModal(${plot.id})` : ''}">
                                     <div class="relative">
                                         <img src="${HOUSE_ICON}" alt="House Plot" class="w-10 h-10" style="${isClaimed ? `filter: drop-shadow(0 0 8px ${classColors[claim.class]})` : ''}">
                                         ${state.showHouseIds ? `
@@ -219,10 +386,15 @@
                                                 ${plot.id}
                                             </div>
                                         ` : ''}
-                                        ${isClaimed ? `
+                                        ${isClaimed && !state.editMode ? `
                                             <div class="absolute top-full left-1/2 transform -translate-x-1/2 mt-1 bg-black bg-opacity-90 px-2 py-1 rounded text-xs whitespace-nowrap pointer-events-none z-10">
                                                 ${claim.character}
                                             </div>
+                                        ` : ''}
+                                        ${state.editMode ? `
+                                            <button onclick="deleteItem(event, 'plot', ${plot.id})" class="absolute -top-2 -right-2 bg-red-600 rounded-full p-1 hover:bg-red-700 text-white text-xs z-20">
+                                                ✕
+                                            </button>
                                         ` : ''}
                                     </div>
                                 </div>
@@ -254,22 +426,79 @@
                                             ${state.claims[state.selectedPlot].class}
                                         </div>
                                     </div>
+                                    <button onclick="handleUnclaim()" class="w-full px-4 py-2 bg-red-600 hover:bg-red-700 rounded font-semibold">
+                                        Unclaim Plot
+                                    </button>
                                 </div>
                             ` : `
-                                <div class="bg-gray-900 p-4 rounded text-center">
-                                    <div class="text-gray-400 mb-2">This plot is available!</div>
-                                    <div class="text-sm text-gray-500">Contact an officer to claim it</div>
+                                <div class="space-y-4">
+                                    <div>
+                                        <label class="block text-sm text-gray-400 mb-1">Character Name</label>
+                                        <input type="text" id="character-input" class="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded focus:outline-none focus:border-blue-500" placeholder="Enter character name">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm text-gray-400 mb-1">Player Name (Discord/Real Name)</label>
+                                        <input type="text" id="player-input" class="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded focus:outline-none focus:border-blue-500" placeholder="Enter player name">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm text-gray-400 mb-1">Class</label>
+                                        <select id="class-select" class="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded focus:outline-none focus:border-blue-500">
+                                            ${classes.map(cls => `<option value="${cls}">${cls}</option>`).join('')}
+                                        </select>
+                                    </div>
+                                    <button onclick="submitClaim()" class="w-full px-4 py-2 bg-green-600 hover:bg-green-700 rounded font-semibold">
+                                        Claim Plot
+                                    </button>
                                 </div>
                             `}
                         </div>
                     </div>
                 ` : ''}
             `;
+
+            // Attach event listeners to map
+            const mapContainer = document.getElementById('map-container');
+            if (mapContainer) {
+                mapContainer.onclick = handleMapClick;
+                mapContainer.onmousemove = handleMouseMove;
+                mapContainer.onmouseup = handleMouseUp;
+            }
         }
 
         // Global functions
+        window.toggleEditMode = function() {
+            if (!state.editMode) {
+                // Entering edit mode - require password
+                const password = prompt('Enter edit mode password:');
+                if (password !== EDIT_PASSWORD) {
+                    alert('Incorrect password!');
+                    return;
+                }
+            }
+            state.editMode = !state.editMode;
+            state.placementMode = null;
+            render();
+        };
+
         window.toggleHouseIds = function() {
             state.showHouseIds = !state.showHouseIds;
+            render();
+        };
+
+        window.clearAll = function() {
+            if (!confirm('Are you sure you want to clear ALL plots, flight paths, portals, and claims? This cannot be undone!')) {
+                return;
+            }
+            state.plots = [];
+            state.flightPaths = [];
+            state.portals = [];
+            state.claims = {};
+            saveState();
+            render();
+        };
+
+        window.setPlacementMode = function(mode) {
+            state.placementMode = state.placementMode === mode ? null : mode;
             render();
         };
 
@@ -278,19 +507,24 @@
             render();
         };
 
-        window.refreshData = async function() {
-            state.loading = true;
-            render();
-            await loadFromGitHub();
+        window.startDragItem = function(e, type, id) {
+            if (!state.editMode) return;
+            const item = type === 'plot' ? state.plots.find(p => p.id === id) :
+                        type === 'flight' ? state.flightPaths.find(f => f.id === id) :
+                        state.portals.find(p => p.id === id);
+            startDrag(e, type, item);
+        };
+
+        window.submitClaim = function() {
+            const character = document.getElementById('character-input').value;
+            const player = document.getElementById('player-input').value;
+            const cls = document.getElementById('class-select').value;
+            handleClaim(character, player, cls);
         };
 
         // Initialize
-        loadFromGitHub();
-        
-        // Auto-refresh every 5 minutes
-        setInterval(() => {
-            loadFromGitHub();
-        }, 5 * 60 * 1000);
+        loadState();
+        render();
     </script>
 </body>
 </html>
