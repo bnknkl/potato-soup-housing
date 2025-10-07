@@ -366,11 +366,6 @@
       "player": "Morri",
       "class": "Warrior"
     },
-    "45": {
-      "character": "Lennox",
-      "player": "Lennox",
-      "class": "Druid"
-    },
     "46": {
       "character": "Lailis",
       "player": "Lailis",
@@ -384,11 +379,6 @@
     "48": {
       "character": "Lavi",
       "player": "Lavi",
-      "class": "Priest"
-    },
-    "49": {
-      "character": "Icia",
-      "player": "Icia",
       "class": "Priest"
     },
     "50": {
