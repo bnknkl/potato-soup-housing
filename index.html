@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Potato Soup Housing Claims</title>
+    <title>WoW Guild Housing Claims - Alliance</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body {
@@ -58,7 +58,7 @@
             portals: [],
             filter: 'all',
             selectedPlot: null,
-            showHouseIds: true,
+            showHouseIds: false,
             loading: true,
             lastUpdated: null
         };
@@ -79,18 +79,27 @@
                     const data = await response.json();
                     const content = JSON.parse(atob(data.content));
                     
+                    console.log('Loaded data:', content);
+                    
                     state.claims = content.claims || {};
                     state.plots = content.plots || [];
                     state.flightPaths = content.flightPaths || [];
                     state.portals = content.portals || [];
                     state.lastUpdated = new Date().toLocaleString();
                     
-                    console.log('Data loaded from GitHub');
+                    console.log('State after load:', {
+                        plots: state.plots.length,
+                        claims: Object.keys(state.claims).length,
+                        flightPaths: state.flightPaths.length,
+                        portals: state.portals.length
+                    });
                 } else {
                     console.error('Failed to load data from GitHub:', response.statusText);
+                    alert('Failed to load data from GitHub. Check console for details.');
                 }
             } catch (error) {
                 console.error('Error loading from GitHub:', error);
+                alert('Error loading data: ' + error.message);
             } finally {
                 state.loading = false;
                 render();
@@ -139,7 +148,7 @@
                     <div class="flex items-center justify-between mb-4">
                         <div class="flex items-center gap-3">
                             <div class="text-yellow-500 text-2xl">🏠</div>
-                            <h1 class="text-2xl font-bold">Potato Soup Housing Claims</h1>
+                            <h1 class="text-2xl font-bold">WoW Alliance Housing Claims</h1>
                             <div class="text-xs text-green-400 bg-green-900 px-2 py-1 rounded">
                                 ☁️ Loaded from GitHub
                             </div>
@@ -148,6 +157,9 @@
                                     Last updated: ${state.lastUpdated}
                                 </div>
                             ` : ''}
+                            <a href="horde.html" class="text-xs text-red-400 hover:text-red-300 bg-red-900 px-2 py-1 rounded">
+                                → Horde Map
+                            </a>
                         </div>
                         <div class="flex items-center gap-4">
                             <div class="flex items-center gap-2 text-sm">
@@ -258,7 +270,7 @@
                             ` : `
                                 <div class="bg-gray-900 p-4 rounded text-center">
                                     <div class="text-gray-400 mb-2">This plot is available!</div>
-                                    <div class="text-sm text-gray-500">Contact an officer to claim it</div>
+                                    <div class="text-sm text-gray-500">Use /claim alliance ${state.selectedPlot} in Discord</div>
                                 </div>
                             `}
                         </div>
