@@ -321,6 +321,11 @@
     }
   ],
   "claims": {
+    "3": {
+      "character": "Shorzy",
+      "player": "chubbychunks01",
+      "class": "Demon Hunter"
+    },
     "6": {
       "character": "Darnon",
       "player": "Darnon",
